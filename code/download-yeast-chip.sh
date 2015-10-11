@@ -3,7 +3,7 @@
 DATA_DIR="../data"
 
 # Yeast ChIP
-mkdir -p $DATA_DIR/yeast
+mkdir -p $DATA_DIR/yeast/fastq
 URL_YEAST="https://s3-us-west-2.amazonaws.com/ash-testdatasets/testChIP"
 FILES_YEAST=(H3K4ME3_Full_length_Set1_Rep_1.fastq.gz \
              H3K4ME3_Full_length_Set1_Rep_2.fastq.gz \
@@ -16,5 +16,5 @@ for FQ in ${FILES_YEAST[*]}
 do
   echo $FQ
   wget --no-check-certificate $URL_YEAST/$FQ
-  mv $FQ $DATA_DIR/yeast
+  mv $FQ $DATA_DIR/yeast/fastq
 done
