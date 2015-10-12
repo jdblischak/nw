@@ -3,7 +3,7 @@ set -e
 
 FQ=$1
 
-GENOME=../data/genome-yeast/Saccharomyces_cerevisiae.R64-1-1.28.dna.genome.fa
+GENOME=../data/yeast/genome/Saccharomyces_cerevisiae.R64-1-1.28.dna.genome.fa
 NAME=`basename ${FQ%.fastq.gz}`
 OUTDIR=../data/yeast/bam
 
