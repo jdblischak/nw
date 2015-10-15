@@ -19,6 +19,8 @@ Load packages.
 ```{r packages}
 library("edgeR")
 library("ggplot2")
+library("ggdendro")
+library("cowplot")
 theme_set(theme_bw(base_size = 12))
 ```
 
@@ -129,12 +131,18 @@ pca_df <- cbind(anno, pca$x)
 As expected, the first two PCs explain most of the variation in the data.
 The first PC separates the samples by treatment.
 The second PC separates the RA-treated samples.
+The hierarchical clustering (complete linkage of Euclidean distances) results agree with the PCA.
 
 ```{r plot-pca}
-ggplot(pca_df, aes(x = PC1, y = PC2, color = treatment, shape = replicate)) +
+pca_plot <- ggplot(pca_df, aes(x = PC1, y = PC2, color = treatment,
+                               shape = replicate)) +
   geom_point() +
   labs(x = sprintf("PC%d (%.2f%%)", 1, round(explained[1] * 100, 2)),
        y = sprintf("PC%d (%.2f%%)", 2, round(explained[2] * 100, 2)),
        title = "PCA")
+hclust_result <- hclust(dist(t(log_cpm)))
+dendro_plot <- ggdendrogram(hclust_result) +
+  labs(title = "Hierarchical clustering")
+plot_grid(pca_plot, dendro_plot, labels = LETTERS[1:2])
 ```
 
