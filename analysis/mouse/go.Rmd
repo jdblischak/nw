@@ -98,14 +98,14 @@ head(go_table)
 
 There are `r nrow(go_table)` significant results.
 
-Reassuringly, there are many categories expected for a stem cell treated with retinoic acid.
+Reassuringly, there are many categories expected for a stem cell differentiating into neuronal precursors in response to treatment with retinoic acid.
 
 ```{r example-categories}
 go_table[grep("retinoic", go_table$Term), ]
 go_table[grep("stem", go_table$Term), ]
 go_table[grep("differentiation", go_table$Term), ]
-# For determining which genes are in a GO category, use the following:
-# 
+go_table[grep("neur", go_table$Term), ]
+go_table[grep("nerv", go_table$Term), ]
 ```
 
 Investigate the RA genes.
