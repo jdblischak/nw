@@ -112,3 +112,29 @@ abline(v = 0, h = 0, col = "red")
 par(op)
 ```
 
+## PCA
+
+Perform principal components analysis (PCA).
+See [Zhang et al. 2009](http://www.ncbi.nlm.nih.gov/pubmed/19763933) for reference.
+
+```{r calc-pca}
+pca <- prcomp(t(log_cpm), retx = TRUE, center = TRUE, scale. = TRUE)
+variances <- pca$sdev^2
+explained <- variances / sum(variances)
+barplot(explained * 100, main = "Variance explained by each PC", xlab = "PC",
+     ylab = "Percent variance explained")
+pca_df <- cbind(anno, pca$x)
+```
+
+As expected, the first two PCs explain most of the variation in the data.
+The first PC separates the samples by treatment.
+The second PC separates the RA-treated samples.
+
+```{r plot-pca}
+ggplot(pca_df, aes(x = PC1, y = PC2, color = treatment, shape = replicate)) +
+  geom_point() +
+  labs(x = sprintf("PC%d (%.2f%%)", 1, round(explained[1] * 100, 2)),
+       y = sprintf("PC%d (%.2f%%)", 2, round(explained[2] * 100, 2)),
+       title = "PCA")
+```
+
