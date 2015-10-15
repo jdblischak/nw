@@ -39,6 +39,8 @@ Create an annotation matrix.
 anno <- strsplit(colnames(counts), split = "\\.")
 anno <- data.frame(treatment = sapply(anno, function(x) x[1]),
                    replicate = sapply(anno, function(x) x[2]))
+write.table(anno, file = "../../data/mouse/annotation.txt", quote = FALSE,
+            sep = "\t", row.names = FALSE)
 anno
 ```
 
@@ -114,6 +116,13 @@ abline(v = 0, h = 0, col = "red")
 par(op)
 ```
 
+Save the filtered counts.
+
+```{r write-filtered-counts}
+write.table(counts, file = "../../data/mouse/counts-matrix-filtered.txt",
+            quote = FALSE, sep = "\t", col.names = NA)
+```
+
 ## PCA
 
 Perform principal components analysis (PCA).
@@ -146,3 +155,8 @@ dendro_plot <- ggdendrogram(hclust_result) +
 plot_grid(pca_plot, dendro_plot, labels = LETTERS[1:2])
 ```
 
+## Session information
+
+```{r session-info}
+sessionInfo()
+```

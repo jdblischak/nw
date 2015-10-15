@@ -1,0 +1,7 @@
+treatment	replicate
+DMSO	REP1
+DMSO	REP2
+DMSO	REP3
+RA	REP1
+RA	REP2
+RA	REP3
