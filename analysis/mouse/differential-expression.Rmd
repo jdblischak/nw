@@ -1,0 +1,105 @@
+---
+title: Differential expression analysis
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+## Setup
+
+Load packages.
+
+```{r packages}
+library("edgeR")
+library("ggplot2")
+library("cowplot")
+theme_set(theme_bw(base_size = 12))
+```
+
+Import the filtered counts matrix.
+
+```{r input-counts}
+counts <- read.table("../../data/mouse/counts-matrix-filtered.txt",
+                     header = TRUE)
+dim(counts)
+head(counts)
+```
+
+Import the annotation data.
+
+```{r import-anno}
+anno <- read.table("../../data/mouse/annotation.txt", header = TRUE)
+stopifnot(nrow(anno) == ncol(counts))
+anno
+```
+
+## Differential expression analysis with edgeR
+
+Convert to a DGEList.
+
+```{r DGEList}
+expr <- DGEList(counts = counts, group = anno$treatment,
+                genes = rownames(counts))
+```
+
+Normalize using TMM.
+
+```{r tmm}
+expr <- calcNormFactors(expr)
+```
+
+Estimate dispersion.
+
+```{r dispersion}
+expr <- estimateCommonDisp(expr)
+expr <- estimateTagwiseDisp(expr)
+```
+
+Perform test.
+
+```{r exact-test}
+de_test <- exactTest(expr)
+topTags(de_test)
+de_results <- topTags(de_test, n = nrow(counts), sort.by = "none")
+de_results <- as.data.frame(de_results)
+rownames(de_results) <- de_results$genes
+de_results[["genes"]] <- NULL
+fdr_cutoff <- 0.05
+de_results$de <- de_results$FDR < fdr_cutoff
+```
+
+Using a FDR cutoff of `r fdr_cutoff * 100`%, `r sum(de_results$de)` of the `r nrow(counts)` genes are differentially expressed.
+
+Save the results.
+
+```{r save-de-results}
+write.table(de_results, file = "../../data/mouse/de-results.txt",
+            quote = FALSE, sep = "\t", col.names = NA)
+```
+
+## Visualize results
+
+```{r visualize-de}
+ma_plot <- ggplot(de_results, aes(x = logCPM, y = logFC, color = de)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = c("black", "red")) +
+  theme(legend.position = "none") +
+  labs(title = "MA plot")
+volcano_plot <- ma_plot %+% aes(x = logFC, y = -log10(PValue)) +
+  xlim(-10, 10) + ylim(0, 100) +
+  labs(title = "Volcano plot")
+plot_grid(ma_plot, volcano_plot, labels = LETTERS[1:2])
+```
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
