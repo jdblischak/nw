@@ -1,0 +1,139 @@
+---
+title: Comparison to RAR binding from Mahony et al., 2011
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+I wanted to intersect the differential expression results with data on the binding location of retinoic acid receptor isoforms (RARs) in mouse embryonic stem cells (mESCs).
+[Mahony et al., 2011][Mahony2011] treated mESCs for 8 hours with RA and profiled RAR binding with ChIP-seq.
+I downloaded their Additional file 6, or [Supplementary Table S2][tableS2].
+The description is below.
+I had to manually convert it from a doc file to a tab-delimited text file.
+
+[Mahony2011]: http://www.genomebiology.com/content/12/1/R2
+[tableS2]: http://www.genomebiology.com/content/supplementary/gb-2011-12-1-r2-s6.doc
+
+> **Additional file 6:**
+>
+> **Supplementary Table S2.** List of 96 differentially expressed genes (> 2-fold, P < 0.01) between day 2 + 8 hours RA and day 2. Tick marks denote the presence of RAR binding sites within 20 kbp of a gene's transcription start site in the presence or absence of RA. 
+
+## Setup
+
+Load packages.
+
+```{r packages, message = FALSE}
+library("biomaRt")
+library("tidyr")
+library("ggplot2")
+library("cowplot")
+theme_set(theme_bw(base_size = 12))
+```
+
+Import the DE results.
+
+```{r input-de-results}
+de_results <- read.table("../../data/mouse/de-results.txt",
+                         header = TRUE)
+head(de_results)
+```
+
+Import [Supplementary Table S2][tableS2] from [Mahony et al., 2011][Mahony2011].
+
+```{r input-mahony2011}
+mahony <- read.table("../../data/mouse/mahony2011-table-s2.txt", sep = "\t",
+                         header = TRUE, stringsAsFactors = FALSE)
+colnames(mahony) <- c("probe", "fc", "pval", "woRA", "withRA")
+mahony$woRA[is.na(mahony$woRA)] <- FALSE
+mahony$withRA[is.na(mahony$withRA)] <- FALSE
+stopifnot(length(unique(mahony$probe)) == nrow(mahony))
+head(mahony)
+```
+
+Download Ensembl gene IDs.
+
+```{r ensembl}
+ensembl <- useMart(host = "sep2015.archive.ensembl.org",
+                   biomart = "ENSEMBL_MART_ENSEMBL",
+                   dataset = "mmusculus_gene_ensembl")
+gene_info <- getBM(attributes = c("ensembl_gene_id", "chromosome_name",
+                                  "external_gene_name"),
+                      filter = c("external_gene_name", "chromosome_name"),
+                      values = list(mahony$probe, c(1:19, "MT", "X", "Y")),
+                      mart = ensembl)
+stopifnot(length(unique(gene_info$external_gene_name)) == nrow(gene_info))
+head(gene_info)
+```
+
+`r nrow(gene_info)` of the `r nrow(mahony)` gene names were successfully converted to Ensembl gene IDs.
+
+Merge the gene IDs.
+
+```{r merge-id}
+d <- merge(mahony, gene_info, by.x = "probe", by.y = "external_gene_name")
+```
+
+Merge the DE results.
+
+```{r merge-de}
+d <- merge(d, de_results, by.x = "ensembl_gene_id", by.y = "row.names")
+```
+
+`r nrow(d)` of the `r nrow(gene_info)` genes with Ensembl gene IDs are robustly expressed in this data set.
+
+Classify the RA binding.
+
+```{r classify-ra-binding}
+ra_binding <- character(length = nrow(d))
+for (i in 1:length(ra_binding)) {
+  if (d$woRA[i] & d$withRA[i]) {
+    ra_binding[i] <- "both"
+  } else if (d$woRA[i] & !d$withRA[i]) {
+    ra_binding[i] <- "-RA"
+  } else if (!d$woRA[i] & d$withRA[i]) {
+    ra_binding[i] <- "+RA"
+  } else {
+    ra_binding[i] <- "neither"
+  }
+}
+d$ra_binding <- factor(ra_binding, levels = c("neither", "-RA", "+RA", "both"))
+table(d$ra_binding)
+```
+
+Compare the results of the current study to those of [Mahony et al., 2011][Mahony2011].
+
+```{r ra-binding}
+compare_fc <- ggplot(d, aes(x = fc, y = logFC)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "log fold change in Mahony et al., 2011",
+       y = "log fold change in current study",
+       title = sprintf("Comparing log fold change. Pearson's r: %.2f",
+                       cor(d$fc, d$logFC)))
+d_long <- gather(d, key = "study", value = "logFC", fc, logFC)
+d_long$study <- ifelse(d_long$study == "logFC", "current", "Mahony2011")
+plot_ra_binding <- ggplot(d_long, aes(x = ra_binding, y = logFC)) +
+  geom_boxplot(aes(fill = study)) +
+  theme(legend.position = "top") +
+  labs(x = "RA binding within 20kb of TSS in Mahony et al., 2011",
+       y = "log2 fold change",
+       title = "Comparing effect of RA binding")
+plot_grid(compare_fc, plot_ra_binding, labels = LETTERS[1:2])
+```
+
+Reassuringly, the log fold change estimates are modestly correlated between the two studies.
+The RAR binding results are more difficult to interpret, especially since there is only one observation available of a RAR bound location only in the absence of RA.
+However, consistent with the known activating role of ligand-bound RARs, on average the largest log fold changes observed in both studies are for the genes bound by RAR only in the presence of ligand.
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
