@@ -1,0 +1,114 @@
+---
+title: Exploring the data
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+## Setup
+
+Load packages.
+
+```{r packages}
+library("edgeR")
+library("ggplot2")
+theme_set(theme_bw(base_size = 12))
+```
+
+Import the counts matrix.
+
+```{r input-counts}
+counts <- read.table("../../data/mouse/counts-matrix.txt", header = TRUE)
+dim(counts)
+colnames(counts) <- sub("mESc.2i.RNA.", "", colnames(counts))
+head(counts)
+```
+
+Create an annotation matrix.
+
+```{r annotation}
+anno <- strsplit(colnames(counts), split = "\\.")
+anno <- data.frame(treatment = sapply(anno, function(x) x[1]),
+                   replicate = sapply(anno, function(x) x[2]))
+anno
+```
+
+## Filter genes
+
+Remove genes with zero counts across all samples.
+
+```{r remove-zeros}
+zeros <- rowSums(counts) == 0
+counts <- counts[!zeros, ]
+```
+
+There were `r sum(zeros)` genes with no observed counts across the `r ncol(counts)` samples.
+
+Next remove lowly expressed genes.
+Use TMM-normalized log~2~ counts per million (cpm).
+
+```{r log-cpm}
+normalized_lib_sizes <- calcNormFactors(counts)
+log_cpm <- cpm(counts, log = TRUE,
+               lib.size = colSums(counts) * normalized_lib_sizes)
+```
+
+There is a bimodal distribution of expression values.
+A good cutoff to remove lowly expressed genes is a log~2~ cpm < 0 in all samples (red line).
+
+```{r expression-distribution}
+op <- par(mfcol = c(1, 3))
+plot(density(log_cpm[, 1]), main = "Distribution of log2 cpm")
+apply(log_cpm[, -1], 2, function(x) lines(density(x)))
+abline(v = 0, col = "red")
+boxplot(log_cpm, las = 3)
+abline(h = 0, col = "red")
+plot(rowMeans(log_cpm[, anno$treatment == "DMSO"]),
+     rowMeans(log_cpm[, anno$treatment == "RA"]),
+     main = "Mean log2 cpm", xlab = "DMSO", ylab = "RA")
+abline(v = 0, h = 0, col = "red")
+par(op)
+```
+
+Remove genes with mean log~2~ cpm < 0 in both the DMSO and RA-treated samples.
+
+```{r remove-lowly-expressed}
+lowly_expressed <- apply(log_cpm, 1, function(x) {
+  mean(x[anno$treatment == "DMSO"]) < 0 & mean(x[anno$treatment == "RA"]) < 0
+})
+counts <- counts[!lowly_expressed, ]
+```
+
+Using this cutoff removes `r sum(lowly_expressed)` lowly expressed genes for a total of `r nrow(counts)` expressed genes, a reasonable number for a single cell type.
+
+Now recalculate the log~2~ cpm with only the expressed genes.
+
+```{r log-cpm-clean}
+normalized_lib_sizes <- calcNormFactors(counts)
+log_cpm <- cpm(counts, log = TRUE,
+                lib.size = colSums(counts) * normalized_lib_sizes)
+```
+
+The lowly expressed genes have been removed, but still allowing for genes to be robustly expressed in only one of the two treatment conditions.
+
+```{r expression-distribution-post-filtering}
+op <- par(mfcol = c(1, 3))
+plot(density(log_cpm[, 1]), main = "Distribution of log2 cpm")
+apply(log_cpm[, -1], 2, function(x) lines(density(x)))
+abline(v = 0, col = "red")
+boxplot(log_cpm, las = 3)
+abline(h = 0, col = "red")
+plot(rowMeans(log_cpm[, anno$treatment == "DMSO"]),
+     rowMeans(log_cpm[, anno$treatment == "RA"]),
+     main = "Mean log2 cpm", xlab = "DMSO", ylab = "RA")
+abline(v = 0, h = 0, col = "red")
+par(op)
+```
+
