@@ -55,11 +55,10 @@ Normalize using TMM.
 expr <- calcNormFactors(expr)
 ```
 
-Estimate dispersion.
+Estimate dispersion ([reference](http://permalink.gmane.org/gmane.science.biology.informatics.conductor/52415)).
 
 ```{r dispersion}
-expr <- estimateCommonDisp(expr)
-expr <- estimateTagwiseDisp(expr)
+expr <- estimateDisp(expr)
 ```
 
 Perform test.
