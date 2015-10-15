@@ -1,0 +1,154 @@
+---
+title: Gene ontology (GO) analysis
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+## Setup
+
+Load packages.
+
+```{r packages, message = FALSE}
+library("topGO")
+library("biomaRt")
+library("edgeR")
+library("tidyr")
+library("ggplot2")
+theme_set(theme_bw(base_size = 12))
+```
+
+Import the filtered counts matrix.
+
+```{r input-counts}
+counts <- read.table("../../data/mouse/counts-matrix-filtered.txt",
+                     header = TRUE)
+dim(counts)
+head(counts)
+```
+
+Calculate log cpm.
+
+```{r log-cpm}
+normalized_lib_sizes <- calcNormFactors(counts)
+log_cpm <- cpm(counts, log = TRUE,
+                lib.size = colSums(counts) * normalized_lib_sizes)
+```
+
+Import the DE results.
+
+```{r input-de-results}
+de_results <- read.table("../../data/mouse/de-results.txt",
+                         header = TRUE)
+head(de_results)
+```
+
+## Gene ontology analysis with topGO
+
+Use topGO for GO analysis.
+It accounts for the nested graph structure of GO terms to prune the number of GO categories tested ([Alexa et al. 2006][Alexa2006]).
+Essentially, it decreases the redundancy of the results.
+
+[Alexa2006]: http://www.ncbi.nlm.nih.gov/pubmed/16606683
+
+First create the gene universe.
+This is all the genes tested for differential expression assigned a 1 for differentially expressed and 0 if not.
+
+```{r gene-universe}
+gene_universe <- as.numeric(de_results$de)
+gene_universe <- factor(gene_universe)
+names(gene_universe) <- rownames(de_results)
+head(gene_universe)
+```
+
+Create the topGO data object.
+Only consider "Biological Process" categories and use the Mouse Ensembl database for annotation.
+
+```{r go-data}
+go_data <- new("topGOdata",
+               ontology = "BP",
+               allGenes = gene_universe,
+               nodeSize = 5,
+               annotationFun = annFUN.org,
+               mapping = "org.Mm.eg",
+               ID = "ensembl")
+```
+
+Use the weight01 algorithm and score the tests with Fisher's exact test.
+
+```{r go-test}
+go_test <- runTest(go_data, algorithm = "weight01", statistic = "fisher")
+```
+
+Keep the results with a Fisher's exact test p-value < 0.01.
+
+```{r go-table}
+go_table <- GenTable(go_data, weightFisher = go_test,
+                     orderBy = "weightFisher", ranksOf = "weightFisher",
+                     topNodes = sum(score(go_test) < .01))
+head(go_table)
+```
+
+There are `r nrow(go_table)` significant results.
+
+Reassuringly, there are many categories expected for a stem cell treated with retinoic acid.
+
+```{r example-categories}
+go_table[grep("retinoic", go_table$Term), ]
+go_table[grep("stem", go_table$Term), ]
+go_table[grep("differentiation", go_table$Term), ]
+# For determining which genes are in a GO category, use the following:
+# 
+```
+
+Investigate the RA genes.
+
+```{r ra-genes}
+go_id_ra <- go_table[grep("retinoic", go_table$Term), "GO.ID"]
+go_genes_ra <- genesInTerm(go_data, go_id_ra)[[1]]
+ensembl <- useMart(host = "sep2015.archive.ensembl.org",
+                   biomart = "ENSEMBL_MART_ENSEMBL",
+                   dataset = "mmusculus_gene_ensembl")
+gene_info_ra <- getBM(attributes = c("ensembl_gene_id", "chromosome_name",
+                                  "external_gene_name", "description"),
+                      filter = "ensembl_gene_id",
+                      values = go_genes_ra,
+                      mart = ensembl)
+stopifnot(go_genes_ra == gene_info_ra$ensembl_gene_id)
+gene_info_ra
+```
+
+Visualize the RA genes.
+
+```{r gather-plot-data}
+log_cpm_ra <- log_cpm[go_genes_ra, ]
+log_cpm_ra <- data.frame(gene = rownames(log_cpm_ra), log_cpm_ra,
+                         stringsAsFactors = FALSE)
+log_cpm_ra_long <- gather(log_cpm_ra, key = "sample", value = "log_cpm", -gene)
+log_cpm_ra_long <- separate(log_cpm_ra_long, col = sample,
+                            into = c("treatment", "replicate"), sep = "\\.")
+log_cpm_ra_long$gene <- factor(log_cpm_ra_long$gene,
+                               levels = go_genes_ra[order(de_results[go_genes_ra, "logFC"])],
+                               labels = gene_info_ra$external_gene_name[order(de_results[go_genes_ra, "logFC"])])
+head(log_cpm_ra_long)
+```
+
+```{r ra-plot}
+ggplot(log_cpm_ra_long, aes(x = gene, y = log_cpm, fill = treatment)) +
+  geom_boxplot() +
+  labs(x = "Gene", y = "log2 cpm",
+       title = sprintf("Expression of retinoic acid genes (%s)", go_id_ra))
+```
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
