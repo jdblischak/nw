@@ -1,0 +1,140 @@
+---
+title: Expression of hox genes
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+Retinoic acid (RA) treatment is known to affect the expression of the Hox genes.
+Here I investigate how the Hox genes are affected in the current experiment.
+
+## Setup
+
+Load packages.
+
+```{r packages, message = FALSE}
+library("biomaRt")
+library("edgeR")
+library("tidyr")
+library("ggplot2")
+library("cowplot")
+theme_set(theme_bw(base_size = 12))
+```
+
+Import the filtered counts matrix.
+
+```{r input-counts}
+counts <- read.table("../../data/mouse/counts-matrix-filtered.txt",
+                     header = TRUE)
+dim(counts)
+head(counts)
+```
+
+Calculate log cpm.
+
+```{r log-cpm}
+normalized_lib_sizes <- calcNormFactors(counts)
+log_cpm <- cpm(counts, log = TRUE,
+                lib.size = colSums(counts) * normalized_lib_sizes)
+```
+
+Import the DE results.
+
+```{r input-de-results}
+de_results <- read.table("../../data/mouse/de-results.txt",
+                         header = TRUE)
+head(de_results)
+```
+
+## Effect of RA treatment on pluripotency genes
+
+Convert to Ensembl gene IDs.
+
+```{r ensembl}
+ensembl <- useMart(host = "sep2015.archive.ensembl.org",
+                   biomart = "ENSEMBL_MART_ENSEMBL",
+                   dataset = "mmusculus_gene_ensembl")
+gene_info <- getBM(attributes = c("ensembl_gene_id", "chromosome_name",
+                                  "external_gene_name"),
+                      filter = c("ensembl_gene_id", "chromosome_name"),
+                      values = list(rownames(log_cpm), c(1:19, "MT", "X", "Y")),
+                      mart = ensembl)
+
+gene_info <- getBM(attributes = c("ensembl_gene_id", "chromosome_name",
+                                  "external_gene_name"),
+                      filter = c("ensembl_gene_id", "chromosome_name"),
+                      values = list(rownames(log_cpm), c(1:19, "MT", "X", "Y")),
+                      mart = ensembl)
+# gene_info <- gene_info[order(gene_info$external_gene_name), ]
+# gene_dups <- which(duplicated(gene_info$external_gene_name))
+# gene_info[c(gene_dups, gene_dups - 1), ]
+head(gene_info)
+```
+
+Subset to include only the hox genes.
+
+```{r subset-hox}
+gene_info_hox <- gene_info[grep("Hox", gene_info$external_gene_name), ]
+stopifnot(length(unique(gene_info_hox$external_gene_name)) == nrow(gene_info_hox))
+```
+
+There are `r nrow(gene_info_hox)` genes robustly expressed in the mESCs.
+
+Merge the log~2~ cpm and DE results with the gene annotation.
+
+```{r merge-hox}
+hox <- merge(gene_info_hox, log_cpm, by.x = "ensembl_gene_id", by.y = "row.names")
+hox <- merge(hox, de_results, by.x = "ensembl_gene_id", by.y = "row.names")
+```
+
+Prepare data for visualization.
+
+```{r prepare-hox-plotting}
+hox$cluster <- substr(hox$external_gene_name, 4, 4)
+hox$number <- as.numeric(sub("Hox.", "", hox$external_gene_name))
+hox$significance <- ifelse(hox$FDR < 0.05, "S", "NS")
+hox_long <- gather(hox, key = "sample", value = "log_cpm",
+                   DMSO.REP1:RA.REP3)
+hox_long <- separate(hox_long, col = sample,
+                     into = c("treatment", "replicate"), sep = "\\.")
+hox_names_uniq <- unique(hox_long$external_gene_name)
+hox_num_uniq <- as.numeric(sub("Hox.", "",hox_names_uniq))
+hox_long$external_gene_name <- factor(hox_long$external_gene_name,
+                                      levels = hox_names_uniq[order(hox_num_uniq)])
+```
+
+Visualize Hox gene expression.
+
+```{r hox-plot, fig.height=10}
+hoxa_plot <- ggplot(hox_long[hox_long$cluster == "a", ],
+                    aes(x = as.factor(number), y = log_cpm, fill = treatment)) +
+  geom_boxplot() +
+  geom_text(aes(label = significance), y = -6) +
+  ylim(-6, 5) +
+  labs(x = "Gene", y = "log2 cpm",
+       title = "Expression of Hoxa genes")
+hoxb_plot <- hoxa_plot %+% hox_long[hox_long$cluster == "b", ] +
+  labs(title = "Expression of Hoxb genes")
+hoxc_plot <- hoxa_plot %+% hox_long[hox_long$cluster == "c", ] +
+  labs(title = "Expression of Hoxc genes")
+hoxd_plot <- hoxa_plot %+% hox_long[hox_long$cluster == "d", ] +
+  labs(title = "Expression of Hoxd genes")
+plot_grid(hoxa_plot, hoxb_plot, hoxc_plot, hoxd_plot, labels = LETTERS[1:4],
+          nrow = 2)
+```
+
+In general, treatment with RA upregulates expression of the Hoxa and Hoxb cluster, downregulates the expression of the Hoxc cluster, and does not affect expression of the Hoxd cluster.
+In the plot, "S" is "significant" and "NS" is "not-significant".
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
