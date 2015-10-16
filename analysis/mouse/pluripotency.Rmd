@@ -1,0 +1,152 @@
+---
+title: Expression of pluripotency genes
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+Treatment of embroyonic stem cells with retinoic acid stimulates them to differentiate into neural precursors.
+Thus I expect genes involved in maintenance of the pluripotent state to be affected.
+To investigate this, I downloaded [Table S9][s9] of [Dowell et al., 2013][Dowell2013] to obtain their list of 354 genes involved in the mouse embryonic stem cell gene regulatory network.
+They obtained this list from the literature, and used it as a "gold standard" for finding other genes important for pluripotency.
+
+[s9]: http://journals.plos.org/plosone/article/asset?unique&id=info:doi/10.1371/journal.pone.0056810.s014
+[Dowell2013]: http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0056810
+
+## Setup
+
+Load packages.
+
+```{r packages, message = FALSE}
+library("biomaRt")
+library("edgeR")
+library("tidyr")
+library("ggplot2")
+theme_set(theme_bw(base_size = 12))
+```
+
+Import the filtered counts matrix.
+
+```{r input-counts}
+counts <- read.table("../../data/mouse/counts-matrix-filtered.txt",
+                     header = TRUE)
+dim(counts)
+head(counts)
+```
+
+Calculate log cpm.
+
+```{r log-cpm}
+normalized_lib_sizes <- calcNormFactors(counts)
+log_cpm <- cpm(counts, log = TRUE,
+                lib.size = colSums(counts) * normalized_lib_sizes)
+```
+
+Import the DE results.
+
+```{r input-de-results}
+de_results <- read.table("../../data/mouse/de-results.txt",
+                         header = TRUE)
+head(de_results)
+```
+
+Import the list of pluripotency genes.
+
+```{r input-pluri-genes}
+pluri <- read.table("../../data/mouse/pluripotency-genes.txt",
+                    header = TRUE, stringsAsFactors = FALSE)
+head(pluri)
+```
+
+## Effect of RA treatment on pluripotency genes
+
+Convert to Ensembl gene IDs.
+
+```{r ensembl}
+ensembl <- useMart(host = "sep2015.archive.ensembl.org",
+                   biomart = "ENSEMBL_MART_ENSEMBL",
+                   dataset = "mmusculus_gene_ensembl")
+pluri_info <- getBM(attributes = c("ensembl_gene_id", "chromosome_name",
+                                  "external_gene_name"),
+                      filter = c("external_gene_name", "chromosome_name"),
+                      values = list(pluri$name, c(1:19, "MT", "X", "Y")),
+                      mart = ensembl)
+stopifnot(length(unique(pluri_info$external_gene_name)) == nrow(pluri_info))
+head(pluri_info)
+```
+
+`r nrow(pluri_info)` of the `r nrow(pluri)` gene names were successfully converted to Ensembl gene IDs.
+
+Subset the log~2~ cpm and create an indicator variable for being a pluripotency gene.
+
+```{r subset-cpm}
+log_cpm_pluri <- log_cpm[rownames(log_cpm) %in% pluri_info$ensembl_gene_id, ]
+de_results$pluripotent <- rownames(de_results) %in% pluri_info$ensembl_gene_id
+```
+
+`r nrow(log_cpm_pluri)` of the `r nrow(pluri_info)` genes with Ensembl annotation are robustly expressed in the current data set.
+
+The heatmap of these pluripotency genes is not very interesting.
+It separates the treated and untreated just like the full data,
+and no other clear patterns arise.
+
+```{r heatmap}
+heatmap(log_cpm_pluri)
+```
+
+Are pluripotent genes enriched among the differentially expressed genes?
+I test this using Fisher's exact test.
+
+```{r fisher-test}
+pluri_fisher <- fisher.test(x = de_results$pluripotent, y = de_results$de)
+pluri_fisher
+```
+
+Yes, with p-value `r sprintf("%.2f", pluri_fisher$p.value)`.
+To visualize the enrichment, below are the density plots of the p-values for differential expression for all genes (black line) and the pluripotent genes (red line).
+
+```{r pluri-enrichment-density}
+plot(density(de_results$PValue[!de_results$pluripotent]),
+     main = "Enrichment of pluripotent genes (red line)",
+     xlab = "p-value")
+lines(density(de_results$PValue[de_results$pluripotent]), col = "red")
+```
+
+Visualize Oct4 (Pou5f1), Sox2, and Nanog expression.
+
+```{r osn-boxplot}
+pluri_ex <- pluri_info[pluri_info$external_gene_name %in% c("Pou5f1", "Sox2", "Nanog"), ]
+log_cpm_pluri_ex <- merge(pluri_ex, log_cpm_pluri, by.x = "ensembl_gene_id",
+                          by.y = "row.names")
+log_cpm_pluri_ex <- gather(log_cpm_pluri_ex, key = "sample", value = "log_cpm",
+                           DMSO.REP1:RA.REP3)
+log_cpm_pluri_ex <- separate(log_cpm_pluri_ex, col = sample,
+                             into = c("treatment", "replicate"), sep = "\\.")
+```
+
+```{r pluripotent-plot}
+ggplot(log_cpm_pluri_ex, aes(x = external_gene_name, y = log_cpm, fill = treatment)) +
+  geom_boxplot() +
+  labs(x = "Gene", y = "log2 cpm",
+       title = "Expression of key pluripotency genes")
+```
+
+After correcting for multiple testing, only Nanog is significantly differentially expressed.
+However, they are all downregulated with RA treatment.
+
+```{r osn-de-results}
+de_results[pluri_ex$ensembl_gene_id, ]
+```
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
