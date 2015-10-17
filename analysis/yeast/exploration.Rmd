@@ -1,0 +1,202 @@
+---
+title: Exploring the data
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+The data is ChIP-seq of H3K4me3 in yeast with the full length [Set1][] gene or a Set1 truncated to amino acids 762-1080.
+The truncated version is the carboxy terminus containing the [methyl transferase domain][me3].
+
+[Set1]: http://www.ncbi.nlm.nih.gov/gene/856519
+[me3]: http://www.ncbi.nlm.nih.gov/Structure/cdd/cddsrv.cgi?uid=214614
+
+## Setup
+
+Load packages.
+
+```{r packages, message=FALSE}
+library("tidyr")
+library("dplyr")
+library("edgeR")
+library("ggplot2")
+library("ggdendro")
+library("cowplot")
+theme_set(theme_bw(base_size = 12))
+```
+
+Create annotation file.
+
+```{r annotation}
+files <- list.files("../../data/yeast/bed/", pattern = "promoter",
+                    full.names = TRUE)
+ip <- ifelse(grepl("H3K4ME3", files), "H3K4me3", "input")
+set1 <- ifelse(grepl("Full_length", files), "full_length", "aa762_1080")
+replicate <- ifelse(grepl("Rep_2", files), "r2", "r1")
+sample <- paste(ip, set1, replicate, sep = ".")
+anno <- data.frame(ip, set1, replicate, sample, stringsAsFactors = FALSE)
+anno
+```
+
+Add the total read counts from the various processing stages.
+
+```{r calc-total-counts}
+mapped <- numeric(length = length(files))
+unmapped <- numeric(length = length(files))
+mapped_quality <- numeric(length = length(files))
+non_duplicated <- numeric(length = length(files))
+# mapped_promoters <- numeric(length = length(files))
+path_bam <- "../../data/yeast/bam"
+for (i in 1:length(files)) {
+  base <- basename(files[i])
+  base <- sub(".sorted.rmdup_promoter.bed", "", base)
+  # print(base)
+  mapped[i] <- scan(file.path(path_bam, paste0(base, "_mapped.txt")),
+                    quiet = TRUE)
+  unmapped[i] <- scan(file.path(path_bam, paste0(base, "_unmapped.txt")),
+                    quiet = TRUE)
+  mapped_quality[i] <- scan(file.path(path_bam, paste0(base, "_quality-mapped.txt")),
+                    quiet = TRUE)
+  non_duplicated[i] <- scan(file.path(path_bam, paste0(base, "_rmdup.txt")),
+                    quiet = TRUE)
+}
+anno <- data.frame(anno, total = mapped + unmapped, mapped,
+                   mapped_quality, non_duplicated,
+                   stringsAsFactors = FALSE)
+```
+
+Save annotation file.
+
+```{r write-annotation}
+write.table(anno, file = "../../data/yeast/annotation.txt", sep = "\t",
+            quote = FALSE, row.names = FALSE)
+```
+
+Combine the bed files with counts of reads mapping to promoters.
+
+```{r input-bed-promoters}
+promoters <- read.table(files[1], sep = "\t", quote = "",
+                        stringsAsFactors = FALSE)
+colnames(promoters) <- c("chr", "start", "end", "name", "pos", "strand",
+                         sample[1])
+for (i in 2:length(files)) {
+  tmp <- read.table(files[i], sep = "\t", quote = "", stringsAsFactors = FALSE)
+  stopifnot(tmp$V4 == promoters$name)
+  promoters <- cbind(promoters, tmp$V7)
+  colnames(promoters)[ncol(promoters)] <- sample[i]
+}
+head(promoters)
+```
+
+Separate the name column.
+
+```{r separate-name}
+promoters <- separate(promoters, col = name,
+                      into = c("id", "gene", "gene_length"), sep = ";")
+promoters$gene_length <- as.numeric(promoters$gene_length)
+```
+
+Save promoters file.
+
+```{r write-promoters}
+write.table(promoters, file = "../../data/yeast/promoters.txt", sep = "\t",
+            quote = FALSE, row.names = FALSE)
+```
+
+Calculate the reads per million using the total number of non-duplicated reads as the total count.
+
+```{r promoters-rpm}
+promoters_rpm <- promoters
+stopifnot(colnames(promoters_rpm)[9:14] == anno$sample)
+for (i in 1:nrow(anno)) {
+  promoters_rpm[, i + 8] <- promoters_rpm[, i + 8] / anno$non_duplicated[i]
+}
+head(promoters_rpm)
+```
+
+## Total counts
+
+Compare the total counts between samples across the processing stages.
+
+Stage  | Description
+------------- | -------------
+total  | Full sequecing depth
+mapped  | reads mapped to yeast genome
+mapped_quality | reads with bwa mapping quality > 10
+non_duplicated | Duplicates removed with `samtools rmdup`
+
+```{r total-counts}
+head(anno)
+anno_long <- gather(anno, key = "stage", value = "count", total:non_duplicated)
+anno_long$stage <- factor(anno_long$stage,
+                          levels = c("total", "mapped", "mapped_quality",
+                                     "non_duplicated"))
+anno_long$sample <- factor(anno_long$sample,
+                           levels = anno$sample[order(anno$total,
+                                                      decreasing = TRUE)],
+                           labels = c("H3K4me3 aa762-1080 Rep 1",
+                                      "H3K4me3 aa762-1080 Rep 2",
+                                      "H3K4me3 full length Rep 1",
+                                      "H3K4me3 full length Rep 2",
+                                      "Input full length Rep 1",
+                                      "Input aa762-1080 Rep 1")[order(anno$total,
+                                                                decreasing = TRUE)])
+anno_long$count <- anno_long$count / 10^6
+ggplot(anno_long, aes(x = stage, y = count, fill = sample)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Total read count through data processing",
+       y = "Number of reads (millions)")
+```
+
+## Comparing IP to input
+
+Caclulate the mean and standard error of the mean (sem) of the reads per million (rpm) for each base 300 bp upstream of the TSS to 300 bp downstream of the TSS across all the genes.
+
+```{r meta-gene-data}
+promoters_rpm_long <- gather(promoters_rpm, key = "experiment", value = "rpm",
+                             H3K4me3.aa762_1080.r1:input.aa762_1080.r1)
+num_genes <- length(unique(promoters$gene))
+meta_gene <- promoters_rpm_long %>%
+  group_by(experiment, pos) %>%
+  summarize(mean = mean(rpm), sem = sd(rpm) / sqrt(num_genes))
+meta_gene$experiment <- factor(meta_gene$experiment,
+                               levels = c("H3K4me3.full_length.r1",
+                                          "H3K4me3.full_length.r2",
+                                          "H3K4me3.aa762_1080.r1",
+                                          "H3K4me3.aa762_1080.r2",
+                                          "input.full_length.r1",
+                                          "input.aa762_1080.r1"),
+                               labels = c("H3K4me3 full length Rep 1",
+                                          "H3K4me3 full length Rep 2",
+                                          "H3K4me3 aa762-1080 Rep 1",
+                                          "H3K4me3 aa762-1080 Rep 2",
+                                          "Input full length Rep 1",
+                                          "Input aa762-1080 Rep 1"))
+```
+
+This is based on `r num_genes` genes which had a transcript length greater than 500 bp (actual minimum length is `r min(promoters_rpm$gene_length)` bp).
+
+```{r h3k4me3-tss-enrichment}
+ggplot(meta_gene, aes(x = pos, y = mean)) +
+  geom_line(aes(color = experiment)) +
+  geom_ribbon(aes(ymin = mean - sem, ymax = mean + sem, fill = experiment),
+              alpha = 0.25) +
+  labs(x = "Position relative to TSS", y = "Mean rpm +/- sem",
+       title = "Enrichment of H3K4me3 at TSS")
+```
+
+The H3K4me3 enrichment is the strongest for the yeast with a full length Set 1, intermediate for the yeast with truncated Set1, and low for both input samples.
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
