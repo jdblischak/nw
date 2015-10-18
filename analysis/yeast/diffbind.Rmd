@@ -1,0 +1,206 @@
+---
+title: Differential binding analysis
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center")
+```
+
+## Setup
+
+Load packages.
+
+```{r packages, message=FALSE}
+library("ggplot2")
+library("ChIPQC")
+library("DiffBind")
+```
+
+Load annotation file.
+
+```{r annotation}
+anno <- read.table("../../data/yeast/annotation.txt", sep = "\t",
+            header = TRUE, stringsAsFactors = FALSE)
+anno
+```
+
+Prepare sample sheet for ChIPQC and DiffBind.
+
+```{r sample-sheet}
+# SampleID: Identifier string for sample
+SampleID <- anno$sample[1:4]
+# Factor: Identifier string for factor
+Factor <- anno$set1[1:4]
+# Replicate: Replicate number of sample
+Replicate <- substr(anno$replicate[1:4], 2, 2)
+Replicate <- as.numeric(Replicate)
+# bamReads: file path for bam file containing aligned reads for ChIP sample
+bamReads <- list.files(path = "../../data/yeast/bam",
+                       pattern = glob2rx("H3K4ME3*sorted.rmdup.bam"),
+                       full.names = TRUE)
+# bamControl: file path for bam file containing aligned reads for control sample
+bamControl <- list.files(path = "../../data/yeast/bam",
+                       pattern = glob2rx("Input*sorted.rmdup.bam"),
+                       full.names = TRUE)
+# Had to reverse order because naming scheme of input files is different
+# from the IP files.
+bamControl <- rep(rev(bamControl), each = 2)
+# ControlID: Identifier string for control sample
+ControlID <- rep(anno$sample[6:5], each = 2)
+# Peaks: path for file containing peaks for sample. format determined by PeakCaller field or caller parameter
+Peaks <- list.files(path = "../../data/yeast/peaks",
+                    pattern = glob2rx("*_peaks.xls"),
+                    full.names = TRUE)
+# PeakCaller: Identifier string for peak caller used. If Peaks is not a bed file, this will determine how the Peaks file is parsed. “macs”: MACS .xls file
+PeakCaller <- "macs"
+samplesheet <- data.frame(SampleID, Factor, Replicate, bamReads, bamControl,
+                          ControlID, Peaks, PeakCaller, stringsAsFactors = FALSE)
+```
+
+## Quality control
+
+Perform QC.
+
+```{r qc}
+qc <- ChIPQC(samplesheet)
+qc
+```
+
+All the samples have a high fraction of reads in peaks (frip),
+though the full length Set1 samples tend to have a higher fraction.
+
+```{r frip}
+plotFrip(qc)
+```
+
+The summit of the peaks are enriched for signal.
+Though this also highlights the difference between the truncated Set1 replicates.
+
+```{r summits}
+plotPeakProfile(qc)
+```
+
+Lastly, all the samples have a cross correlation greater than 1, indicating enrichment.
+Strangely, the cross correlation does not appear normally distributed as normal.
+This may be related to why I had to decrease the lower threshold from 5 to 3 when trying to find paired peaks.
+Maybe I could try specifying `--no-model --shiftsize=147` to be the size of one nucleosome.
+
+```{r cross-correlation}
+plotCC(qc)
+```
+
+## Test for differential H3K4me3
+
+Contruct dba object.
+
+```{r create-dba}
+d <- dba(sampleSheet = samplesheet,
+         minOverlap = 2, # Peaks have to be identified in at least
+                         # 2 of the 4 samples
+         # Lots of configuration options. I only comment when I change
+         # the default setting.
+         config = data.frame(RunParallel = TRUE,
+                             reportInit = "DBA",
+                             DataType = DBA_DATA_FRAME, # Return df instead of granges
+                             AnalysisMethod = DBA_EDGER,
+                             minQCth = 10, # Use min read qual of 10 instead of 15
+                             fragmentSize = 125,
+                             bCorPlot = FALSE, # Don't plot automatically
+                             th = .1,
+                             bUsePval=FALSE),
+         bCorPlot = FALSE)
+```
+
+Because there are only 4 samples total, the minimum requirement that a peak is observed in at least two samples seems overly stringent.
+`dba.overlap` displays the number of peaks found in at least one sample, two samples, etc.
+
+```{r overlap-rates}
+overlap <- dba.overlap(d, mode = DBA_OLAP_RATE)
+overlap
+```
+
+By requiring a peak is observed in at least two samples, I lose `r overlap[1] - overlap[2]` peaks.
+I redefine the dba requiring a peak is only observed in one sample.
+
+```{r redefine-dba}
+d <- dba(sampleSheet = samplesheet,
+         minOverlap = 1, # Peaks have to be identified in at least
+                         # 1 of the 4 samples
+         # Lots of configuration options. I only comment when I change
+         # the default setting.
+         config = data.frame(RunParallel = TRUE,
+                             reportInit = "DBA",
+                             DataType = DBA_DATA_FRAME, # Return df instead of granges
+                             AnalysisMethod = DBA_EDGER,
+                             minQCth = 10, # Use min read qual of 10 instead of 15
+                             fragmentSize = 125,
+                             bCorPlot = FALSE, # Don't plot automatically
+                             th = .1,
+                             bUsePval=FALSE),
+         bCorPlot = FALSE)
+```
+
+Visualize the relationship between the samples using the concordance in binding sites.
+
+```{r dba-heatmap}
+dba.plotHeatmap(d)
+```
+
+```{r dba-pca}
+dba.plotPCA(d, label = DBA_REPLICATE)
+```
+
+Clearly the full length and truncated Set1 samples are more closely related to their replicates than each other.
+The first PC is the split between the two.
+However, it is clear in the second PC that there is substantial difference between replicates.
+
+Now I count the reads in each peak and again compare the samples using this more quantitative measurement.
+
+```{r count-reads}
+d = dba.count(d)
+```
+
+```{r dba-heatmap-reads}
+dba.plotHeatmap(d)
+```
+
+```{r dba-pca-reads}
+dba.plotPCA(d, label = DBA_REPLICATE)
+```
+
+Now the split in PC1 between the two Set1 versions is even stronger.
+Also, the replicates for the full length now cluster much closer together on PC2, and the truncated Set1 replicates are even further apart.
+
+Perform the differential expression using edgeR.
+
+```{r de-test}
+d = dba.contrast(d, categories = DBA_FACTOR, minMembers = 2)
+d = dba.analyze(d)
+results = dba.report(d)
+head(results)
+```
+
+There are `r nrow(results)` regions with diffential H3K4me3 reads between the two Set1 proteins.
+Of these, `r sum(results$Conc_full_length > results$Conc_aa762_1080)` of the regions have more H3K4me3 reads in the yeast samples with the fully functional Set1.
+This can be visualized with the MA plots below.
+The red dots are significantly different regions.
+
+```{r dba-ma-plot}
+dba.plotMA(d)
+```
+
+```{r dba-scatter-plot}
+dba.plotMA(d, bXY = TRUE)
+```
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
