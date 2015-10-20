@@ -1,0 +1,16 @@
+---
+title: RNA-seq of RA-treated mESCs
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+
+*  [Initial exploration of the data](exploration.html)
+*  [Differential expression analysis](differential-expression.html)
+*  [Gene ontology analysis](go.html)
+*  [Hox genes](hox.html)
+*  [Pluripotency genes](pluripotency.html)
+*  [Comparison to RAR binding sites from Mahony et al., 2011](mahony2011.html)

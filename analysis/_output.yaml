@@ -1,0 +1,8 @@
+html_document:
+  toc: true
+  self_contained: true
+  theme: united
+  highlight: textmate
+  mathjax: null
+  toc_depth: 3
+  pandoc_args: ["+RTS", "-K64m", "-RTS" ]
