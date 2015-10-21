@@ -10,7 +10,7 @@ hox.html: hox.Rmd differential-expression.html
 pluripotency.html: pluripotency.Rmd differential-expression.html
 	R --slave -e "set.seed(100);rmarkdown::render('$<')"
 
-mahony.html: mahony.Rmd differential-expression.html
+mahony2011.html: mahony2011.Rmd differential-expression.html
 	R --slave -e "set.seed(100);rmarkdown::render('$<')"
 
 go.html: go.Rmd differential-expression.html
