@@ -1,0 +1,133 @@
+---
+title: Misregulation of H3K4me3
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+There is a clear trend in the [metagene plot that H3K4me3 is misregulated across the gene body][body-meta].
+The yeast with truncated Set1 have reduced H3K4me3 at the TSS and increased in the gene body.
+How many genes are affected in this way?
+To answer this question, I will calculate the ratio between the mean rpm in bins 1-10 at the beginning of the gene body compared to bins 31-40, where the largest difference is seen the the metagene plot.
+To avoid dividing by zero, I add a pseudocount of 1 to the calculated mean in the body.
+To improve the distribution of the statistic, I log~2~ transform it.
+For each gene, I will test if this ratio changes between yeast with the different versions of Set1.
+
+[body-meta]: metagene.html#plot
+
+## Setup
+
+```{r load-packages, message=FALSE}
+library("tidyr")
+library("dplyr")
+library("ggplot2")
+library("cowplot")
+theme_set(theme_bw(base_size = 12))
+```
+
+Read in the reads per million (rpm) data with the input subtracted.
+
+```{r input-counts}
+anno <- read.table("../../data/yeast/annotation.txt", header = TRUE, sep = "\t",
+                   stringsAsFactors = FALSE)
+counts_cpm_std <- read.table("../../data/yeast/counts-cpm-std.txt", header = TRUE, sep = "\t",
+                   stringsAsFactors = FALSE) 
+stopifnot(grep("H3K4me3", anno$sample, value = TRUE) == 
+          grep("H3K4me3", colnames(counts_cpm_std), value = TRUE))
+```
+
+Calculate the ratio.
+
+```{r prepare-bins}
+counts_long <- gather(counts_cpm_std, key = "sample", value = "cpm",
+                      H3K4me3.aa762_1080.r1:H3K4me3.full_length.r2)
+ratio <- counts_long %>%
+  group_by(sample, gene) %>%
+  summarize(mean_tss = mean(cpm[bin %in% 1:10]),
+            mean_body = mean(cpm[bin %in% 31:40]),
+            ratio = mean_tss / (mean_body + 1))
+ratio <- separate(ratio, col = sample, into = c("ip", "set1", "replicate"),
+                  sep = "\\.")
+```
+
+Remove genes where the ratio is static across the samples (t-test throws an error).
+
+```{r remove-static}
+static_genes <- ratio %>% group_by(gene) %>%
+  summarize(variance = var(ratio)) %>%
+  filter(variance < 0.1) %>%
+  select(gene) %>%
+  unlist
+ratio <- ratio %>% filter(!(gene %in% static_genes))
+```
+
+`r length(static_genes)` genes with zero variance in the ratio were removed, leaving a total of `r length(unique(ratio$gene))` for testing.
+
+How much variation is there in these metrics?
+
+```{r ratio-variation}
+ratio_hist <- ggplot(ratio, aes(x = ratio)) + geom_histogram() + scale_x_log10()
+compare_mean_plot <- ggplot(ratio, aes(x = mean_tss, y = mean_body)) +
+  geom_point() + scale_x_log10() + scale_y_log10()
+plot_grid(ratio_hist, compare_mean_plot)
+```
+
+Peform the test.
+
+```{r test-ratio}
+result <- ratio %>% group_by(gene) %>%
+  # filter(var(ratio) > 1) %>%
+  summarize(tstat = t.test(ratio[set1 == "full_length"],
+                           ratio[set1 == "aa762_1080"])$statistic,
+            pval = t.test(ratio[set1 == "full_length"],
+                           ratio[set1 == "aa762_1080"])$p.value)
+result$facet <- ifelse(result$tstat > 2, "high",
+                       ifelse(result$tstat < -2, "low", "middle"))
+```
+
+## Plot metagene split by differences in H3K4me3 misregulation
+
+```{r prepare-metagene-data}
+counts_long <- merge(counts_long, result, by = "gene")
+
+metagene <- counts_long %>%
+  group_by(sample, bin, facet) %>%
+  summarize(mean = mean(cpm),
+            sem = sd(cpm) / sqrt(n()))
+metagene$bin <- as.numeric(metagene$bin)
+metagene$sample <- factor(metagene$sample,
+                          levels = c("H3K4me3.full_length.r1",
+                                     "H3K4me3.full_length.r2",
+                                     "H3K4me3.aa762_1080.r1",
+                                     "H3K4me3.aa762_1080.r2"),
+                          labels = c("H3K4me3 full length Rep 1",
+                                     "H3K4me3 full length Rep 2",
+                                     "H3K4me3 aa762-1080 Rep 1",
+                                     "H3K4me3 aa762-1080 Rep 2"))
+metagene$facet <- factor(metagene$facet, levels = c("low", "middle", "high"))
+```
+
+Plot the metagene result.
+
+```{r gene-body-metagene-tstat}
+ggplot(metagene, aes(x = bin, y = mean)) +
+  geom_line(aes(color = sample)) +
+  geom_ribbon(aes(ymin = mean - sem, ymax = mean + sem, fill = sample),
+              alpha = 0.25) +
+  labs(x = "", y = "mean rpm (+/- sem)",
+       title = "Distribution of H3K4me3 across gene body") +
+  facet_wrap(~facet)
+```
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
