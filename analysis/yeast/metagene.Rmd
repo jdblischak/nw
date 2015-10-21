@@ -1,5 +1,5 @@
 ---
-title: Metagene plots
+title: Distribution of H3K4me3 across the gene body
 author: John Blischak
 ---
 
@@ -12,12 +12,26 @@ library("knitr")
 opts_chunk$set(fig.align = "center", fig.width = 10)
 ```
 
-```{r}
+I already saw that at the TSS, there is more H3k4me3 in the yeast with a full length Set1 compared to the truncated form ([link to plot][tss-meta]).
+Now I will explore the distribution across the entire gene.
+To compare genes of different lengths, I split each gene into 50 bins.
+This only includes genes which are greater than 500 bp (so the minimum potential bin size is ~10 bp).
+
+[tss-meta]: exploration.html#comparing-ip-to-input
+
+## Setup
+
+```{r load-packages, message=FALSE}
 library("edgeR")
 library("tidyr")
 library("dplyr")
 library("ggplot2")
 theme_set(theme_bw(base_size = 12))
+```
+
+Read in the featureCounts results for assigning reads to the 50 bins for each gene.
+
+```{r input-counts}
 anno <- read.table("../../data/yeast/annotation.txt", header = TRUE, sep = "\t",
                    stringsAsFactors = FALSE)
 bin_files <- list.files("../../data/yeast/counts", glob2rx("bins*txt"),
@@ -31,10 +45,13 @@ stopifnot(grep("input", anno$sample, ignore.case = TRUE) ==
           grep("full", anno$sample, ignore.case = TRUE) ==
           grep("full", colnames(counts), ignore.case = TRUE))
 colnames(counts) <- anno$sample
-head(counts)
+head(counts$counts)
 ```
 
-```{r}
+Calculate the reads per million (rpm),
+and then subtract the input rpm from the IP rpm.
+
+```{r rpm}
 counts_cpm <- cpm(counts)
 counts_cpm <- as.data.frame(counts_cpm)
 counts_cpm$H3K4me3.aa762_1080.r1 <- counts_cpm$H3K4me3.aa762_1080.r1 -
@@ -49,11 +66,15 @@ counts_cpm_std <- counts_cpm %>% select(contains("H3K4me3"))
 head(counts_cpm_std)
 ```
 
-```{r}
+Prepare the data for plotting by each bin.
+
+```{r prepare-bins}
 counts_cpm_std <- cbind(rownames(counts_cpm_std), counts_cpm_std)
 colnames(counts_cpm_std)[1] <- "gene_num"
 counts_cpm_std <- separate(counts_cpm_std, col = gene_num,
                            into = c("gene", "bin"), sep = ";")
+write.table(counts_cpm_std, "../../data/yeast/counts-cpm-std.txt", sep = "\t",
+            quote = FALSE, row.names = FALSE, col.names = TRUE)
 counts_long <- gather(counts_cpm_std, key = "sample", value = "cpm",
                       H3K4me3.aa762_1080.r1:H3K4me3.full_length.r2)
 metagene <- counts_long %>%
@@ -61,15 +82,31 @@ metagene <- counts_long %>%
   summarize(mean = mean(cpm),
             sem = sd(cpm) / sqrt(n()))
 metagene$bin <- as.numeric(metagene$bin)
+metagene$sample <- factor(metagene$sample,
+                          levels = c("H3K4me3.full_length.r1",
+                                     "H3K4me3.full_length.r2",
+                                     "H3K4me3.aa762_1080.r1",
+                                     "H3K4me3.aa762_1080.r2"),
+                          labels = c("H3K4me3 full length Rep 1",
+                                     "H3K4me3 full length Rep 2",
+                                     "H3K4me3 aa762-1080 Rep 1",
+                                     "H3K4me3 aa762-1080 Rep 2"))
 ```
 
-```{r}
+## Plot
+
+Plot the metagene result.
+
+```{r gene-body-metagene}
 ggplot(metagene, aes(x = bin, y = mean)) +
   geom_line(aes(color = sample)) +
   geom_ribbon(aes(ymin = mean - sem, ymax = mean + sem, fill = sample),
-              alpha = 0.25)
+              alpha = 0.25) +
+  labs(x = "", y = "mean rpm (+/- sem)",
+       title = "Distribution of H3K4me3 across gene body")
 ```
 
+In addition to the lower H3K4me3 at the TSS, there is higher H3K4me3 in the gene body for the yeast with the truncated Set1.
 
 ## Session information
 
