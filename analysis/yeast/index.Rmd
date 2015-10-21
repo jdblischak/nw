@@ -11,3 +11,4 @@ author: John Blischak
 *  [Initial exploration of the data](exploration.html)
 *  [Differential expression analysis using MACS peaks](diffbind.html)
 *  [Distribution of H3K4me3 across the gene body](metagene.html)
+*  [Genewise tests of H3K4me3 misregulation](misregulated.html)
