@@ -1,0 +1,12 @@
+---
+title: ChIP-seq of truncated Set1
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+
+*  [Initial exploration of the data](exploration.html)
+*  [Differential expression analysis using MACS peaks](diffbind.html)
