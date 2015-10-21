@@ -156,6 +156,89 @@ Each quantile contains ~`r table(result$facet)[4]` genes.
 table(result$facet)
 ```
 
+## TFIID versus SAGA regulation
+
+[Soares et al., 2014][Soares2014] studied the effect of Set1 truncations on H3K4me3.
+They used results from [Huisinga & Pugh, 2004][huisinga2004] to show the differences between those genes that are regulated by TFIID versus SAGA.
+From their paper:
+
+[Soares2014]: http://www.ncbi.nlm.nih.gov/pubmed/24613354
+[Huisinga2004]: http://www.ncbi.nlm.nih.gov/pubmed/14992726
+
+> Given the differential responses of PMA1 and RPS13 to reduced Set1 activity, we sought to identify features that distin- guish these genes. Huisinga and Pugh (2004) sorted genes into two classes based on sensitivity to TFIID or SAGA mutants. TFIID function predominates at approximately 90% of genes, mostly constitutively expressed, and SAGA is important for expression of the remaining, often highly regulated, 10%. PMA1 is classified as SAGA dependent, whereas RPS13 is TFIID responsive.
+
+They observed higher H3K4me3 at SAGA-regulated genes compared to TFIID genes.
+Furthermore, they observed that H3K4me3 was affected much more at SAGA-regulated genes in yeast with truncated Set1.
+I wanted to see if I observed similar patterns.
+
+```{r input-huisinga-2004}
+huisinga2004 <- read.table("../../data/yeast/huisinga-2004-table-s02.txt", header = TRUE,
+                           sep = "\t", stringsAsFactors = FALSE)
+head(huisinga2004)
+```
+
+Merge with the test results.
+
+```{r merge-huisinga-2004}
+result <- merge(result, huisinga2004, by.x = "gene", by.y = "Gene.ID")
+# Remove genes with empty cells from Table S02
+result <- result %>% filter(SAGA.TFIID.group != "")
+```
+
+There are `r length(unique(result$gene))` in this data set that were also annotated by Huisinga & Pugh, 2004.
+
+```{r pval-by-saga}
+ggplot(result, aes(x = SAGA.TFIID.group, y = pval)) + geom_boxplot()
+ggplot(result[result$SAGA.TFIID.group %in% c("SAGA-dominated", "TFIID-dominated"), ],
+       aes(x = SAGA.TFIID.group, y = pval)) + geom_boxplot()
+# Performs one or two sample Kolmogorov-Smirnov tests
+ks.test(result$pval[result$SAGA.TFIID.group == "SAGA-dominated"],
+        result$pval[result$SAGA.TFIID.group == "TFIID-dominated"])
+```
+
+I see no difference in enrichment of signal for a difference in TSS minus gene body H3K4me3 for the differnent versions of Set1.
+
+Prepare for plotting.
+
+```{r merge-huisinga-2004-counts-long}
+counts_long <- merge(counts_long, huisinga2004, by.x = "gene", by.y = "Gene.ID")
+# Remove genes with empty cells from Table S02
+counts_long <- counts_long %>% filter(SAGA.TFIID.group != "")
+metagene_saga <- counts_long %>%
+  group_by(sample, bin, SAGA.TFIID.group) %>%
+  summarize(mean = mean(cpm),
+            sem = sd(cpm) / sqrt(n()))
+metagene_saga$bin <- as.numeric(metagene_saga$bin)
+metagene_saga$sample <- factor(metagene_saga$sample,
+                          levels = c("H3K4me3.full_length.r1",
+                                     "H3K4me3.full_length.r2",
+                                     "H3K4me3.aa762_1080.r1",
+                                     "H3K4me3.aa762_1080.r2"),
+                          labels = c("H3K4me3 full length Rep 1",
+                                     "H3K4me3 full length Rep 2",
+                                     "H3K4me3 aa762-1080 Rep 1",
+                                     "H3K4me3 aa762-1080 Rep 2"))
+```
+
+Plot the metagene result.
+
+```{r gene-body-metagene-saga}
+ggplot(metagene_saga[metagene_saga$SAGA.TFIID.group %in% c("SAGA-dominated", "TFIID-dominated"), ],
+       aes(x = bin, y = mean)) +
+  geom_line(aes(color = sample)) +
+  geom_ribbon(aes(ymin = mean - sem, ymax = mean + sem, fill = sample),
+              alpha = 0.25) +
+  labs(x = "", y = "mean rpm (+/- sem)",
+       title = "Distribution of H3K4me3 across gene body") +
+  facet_wrap(~SAGA.TFIID.group) +
+  theme(legend.position = "bottom")
+```
+
+Strangely, I observe more H3K4me3 enrichment at TFIID-regulated genes compared to SAGA-regulated genes.
+I'm not sure what is going on here.
+
+![](http://ars.els-cdn.com/content/image/1-s2.0-S221112471400117X-gr5.jpg)
+
 ## Session information
 
 ```{r session-info}
