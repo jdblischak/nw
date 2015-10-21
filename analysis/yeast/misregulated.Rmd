@@ -1,0 +1,246 @@
+---
+title: Misregulation of H3K4me3
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+There is a clear trend in the [metagene plot that H3K4me3 is misregulated across the gene body][body-meta].
+The yeast with truncated Set1 have reduced H3K4me3 at the TSS and increased in the gene body.
+How many genes are affected in this way?
+To answer this question, I will calculate the difference between the mean rpm in bins 1-10 at the beginning of the gene body compared to bins 31-40, where the largest difference is seen the the metagene plot.
+For each gene, I will test if this difference changes between yeast with the different versions of Set1.
+
+[body-meta]: metagene.html#plot
+
+## Setup
+
+```{r load-packages, message=FALSE}
+library("tidyr")
+library("dplyr")
+library("ggplot2")
+library("cowplot")
+theme_set(theme_bw(base_size = 12))
+```
+
+Read in the reads per million (rpm) data with the input subtracted.
+
+```{r input-counts}
+anno <- read.table("../../data/yeast/annotation.txt", header = TRUE, sep = "\t",
+                   stringsAsFactors = FALSE)
+counts_cpm_std <- read.table("../../data/yeast/counts-cpm-std.txt", header = TRUE, sep = "\t",
+                   stringsAsFactors = FALSE) 
+stopifnot(grep("H3K4me3", anno$sample, value = TRUE) == 
+          grep("H3K4me3", colnames(counts_cpm_std), value = TRUE))
+```
+
+Calculate the difference.
+
+```{r prepare-bins}
+counts_long <- gather(counts_cpm_std, key = "sample", value = "cpm",
+                      H3K4me3.aa762_1080.r1:H3K4me3.full_length.r2)
+difference <- counts_long %>%
+  group_by(sample, gene) %>%
+  summarize(mean_tss = mean(cpm[bin %in% 1:10]),
+            mean_body = mean(cpm[bin %in% 31:40]),
+            difference = mean_tss - mean_body)
+difference <- separate(difference, col = sample, into = c("ip", "set1", "replicate"),
+                  sep = "\\.")
+```
+
+Remove genes where the difference is static across the samples (t-test throws an error).
+
+```{r remove-static}
+static_genes <- difference %>% group_by(gene) %>%
+  summarize(variance = var(difference)) %>%
+  filter(variance < 0.1) %>%
+  select(gene) %>%
+  unlist
+difference <- difference %>% filter(!(gene %in% static_genes))
+```
+
+`r length(static_genes)` genes with zero variance in the difference were removed, leaving a total of `r length(unique(difference$gene))` for testing.
+
+How much variation is there in these metrics?
+
+```{r difference-variation}
+difference_hist <- ggplot(difference, aes(x = difference)) +
+  geom_histogram() +
+  scale_x_log10() +
+  labs(title = "Distribution of H3K4me3 difference",
+       x = "difference (log10 transformed)")
+compare_mean_plot <- ggplot(difference, aes(x = mean_tss, y = mean_body)) +
+  geom_point() +
+  scale_x_log10() + scale_y_log10() +
+    labs(title = "Relationship between mean H3K4me3 in between TSS and gene body",
+       x = "Mean rpm at gene body (log10 transformed)",
+       y = "Mean rpm at TSS (log10 transformed)")
+plot_grid(difference_hist, compare_mean_plot)
+```
+
+Peform the test.
+
+```{r test-difference}
+result <- difference %>% group_by(gene) %>%
+  # filter(var(difference) > 1) %>%
+  summarize(tstat = t.test(difference[set1 == "full_length"],
+                           difference[set1 == "aa762_1080"])$statistic,
+            pval = t.test(difference[set1 == "full_length"],
+                           difference[set1 == "aa762_1080"])$p.value)
+result$facet <- cut(result$tstat, breaks = quantile(result$tstat),
+                    include.lowest = TRUE)
+```
+
+There is a clear enrichment of signal in the p-value distribution.
+
+```{r pval-hist}
+ggplot(result, aes(x = pval)) +
+  geom_histogram() +
+  labs(title = "p-value distribution",
+       x = "p-value") +
+  geom_vline(x = 0.05, col = "red")
+n_sig <- sum(result$pval < .05)
+n_sig_fdr <- sum(p.adjust(result$pval) < .05)
+```
+
+`r n_sig` of the total `r nrow(result)` genes tested had a significant difference in the H3K4me3 distribution.
+However, after FDR correction for multiple testing, `r n_sig_fdr` genes were significant.
+This is likely due to the small sample size.
+
+## Plot metagene split by differences in H3K4me3 misregulation
+
+Using the t-statistic from the above test, plot the distribution of H3K4me3 for genes with varying levels of evidence for misregulation.
+
+```{r prepare-metagene-data}
+counts_long <- merge(counts_long, result, by = "gene")
+
+metagene <- counts_long %>%
+  group_by(sample, bin, facet) %>%
+  summarize(mean = mean(cpm),
+            sem = sd(cpm) / sqrt(n()))
+metagene$bin <- as.numeric(metagene$bin)
+metagene$sample <- factor(metagene$sample,
+                          levels = c("H3K4me3.full_length.r1",
+                                     "H3K4me3.full_length.r2",
+                                     "H3K4me3.aa762_1080.r1",
+                                     "H3K4me3.aa762_1080.r2"),
+                          labels = c("H3K4me3 full length Rep 1",
+                                     "H3K4me3 full length Rep 2",
+                                     "H3K4me3 aa762-1080 Rep 1",
+                                     "H3K4me3 aa762-1080 Rep 2"))
+```
+
+Plot the metagene result.
+
+```{r gene-body-metagene-tstat}
+ggplot(metagene, aes(x = bin, y = mean)) +
+  geom_line(aes(color = sample)) +
+  geom_ribbon(aes(ymin = mean - sem, ymax = mean + sem, fill = sample),
+              alpha = 0.25) +
+  labs(x = "", y = "mean rpm (+/- sem)",
+       title = "Distribution of H3K4me3 across gene body") +
+  facet_wrap(~facet) +
+  theme(legend.position = "bottom")
+```
+
+Each quantile contains ~`r table(result$facet)[4]` genes.
+
+```{r num-per-facet}
+table(result$facet)
+```
+
+## TFIID versus SAGA regulation
+
+[Soares et al., 2014][Soares2014] studied the effect of Set1 truncations on H3K4me3.
+They used results from [Huisinga & Pugh, 2004][huisinga2004] to show the differences between those genes that are regulated by TFIID versus SAGA.
+From their paper:
+
+[Soares2014]: http://www.ncbi.nlm.nih.gov/pubmed/24613354
+[Huisinga2004]: http://www.ncbi.nlm.nih.gov/pubmed/14992726
+
+> Given the differential responses of PMA1 and RPS13 to reduced Set1 activity, we sought to identify features that distin- guish these genes. Huisinga and Pugh (2004) sorted genes into two classes based on sensitivity to TFIID or SAGA mutants. TFIID function predominates at approximately 90% of genes, mostly constitutively expressed, and SAGA is important for expression of the remaining, often highly regulated, 10%. PMA1 is classified as SAGA dependent, whereas RPS13 is TFIID responsive.
+
+They observed higher H3K4me3 at SAGA-regulated genes compared to TFIID genes.
+Furthermore, they observed that H3K4me3 was affected much more at SAGA-regulated genes in yeast with truncated Set1.
+I wanted to see if I observed similar patterns.
+
+```{r input-huisinga-2004}
+huisinga2004 <- read.table("../../data/yeast/huisinga-2004-table-s02.txt", header = TRUE,
+                           sep = "\t", stringsAsFactors = FALSE)
+head(huisinga2004)
+```
+
+Merge with the test results.
+
+```{r merge-huisinga-2004}
+result <- merge(result, huisinga2004, by.x = "gene", by.y = "Gene.ID")
+# Remove genes with empty cells from Table S02
+result <- result %>% filter(SAGA.TFIID.group != "")
+```
+
+There are `r length(unique(result$gene))` in this data set that were also annotated by Huisinga & Pugh, 2004.
+
+```{r pval-by-saga}
+ggplot(result, aes(x = SAGA.TFIID.group, y = pval)) + geom_boxplot()
+ggplot(result[result$SAGA.TFIID.group %in% c("SAGA-dominated", "TFIID-dominated"), ],
+       aes(x = SAGA.TFIID.group, y = pval)) + geom_boxplot()
+# Performs one or two sample Kolmogorov-Smirnov tests
+ks.test(result$pval[result$SAGA.TFIID.group == "SAGA-dominated"],
+        result$pval[result$SAGA.TFIID.group == "TFIID-dominated"])
+```
+
+I see no difference in enrichment of signal for a difference in TSS minus gene body H3K4me3 for the differnent versions of Set1.
+
+Prepare for plotting.
+
+```{r merge-huisinga-2004-counts-long}
+counts_long <- merge(counts_long, huisinga2004, by.x = "gene", by.y = "Gene.ID")
+# Remove genes with empty cells from Table S02
+counts_long <- counts_long %>% filter(SAGA.TFIID.group != "")
+metagene_saga <- counts_long %>%
+  group_by(sample, bin, SAGA.TFIID.group) %>%
+  summarize(mean = mean(cpm),
+            sem = sd(cpm) / sqrt(n()))
+metagene_saga$bin <- as.numeric(metagene_saga$bin)
+metagene_saga$sample <- factor(metagene_saga$sample,
+                          levels = c("H3K4me3.full_length.r1",
+                                     "H3K4me3.full_length.r2",
+                                     "H3K4me3.aa762_1080.r1",
+                                     "H3K4me3.aa762_1080.r2"),
+                          labels = c("H3K4me3 full length Rep 1",
+                                     "H3K4me3 full length Rep 2",
+                                     "H3K4me3 aa762-1080 Rep 1",
+                                     "H3K4me3 aa762-1080 Rep 2"))
+```
+
+Plot the metagene result.
+
+```{r gene-body-metagene-saga}
+ggplot(metagene_saga[metagene_saga$SAGA.TFIID.group %in% c("SAGA-dominated", "TFIID-dominated"), ],
+       aes(x = bin, y = mean)) +
+  geom_line(aes(color = sample)) +
+  geom_ribbon(aes(ymin = mean - sem, ymax = mean + sem, fill = sample),
+              alpha = 0.25) +
+  labs(x = "", y = "mean rpm (+/- sem)",
+       title = "Distribution of H3K4me3 across gene body") +
+  facet_wrap(~SAGA.TFIID.group) +
+  theme(legend.position = "bottom")
+```
+
+Strangely, I observe more H3K4me3 enrichment at TFIID-regulated genes compared to SAGA-regulated genes.
+I'm not sure what is going on here.
+
+![](http://ars.els-cdn.com/content/image/1-s2.0-S221112471400117X-gr5.jpg)
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```

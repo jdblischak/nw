@@ -1,7 +1,13 @@
 
 all: index.html
 
-index.html: index.Rmd exploration.html diffbind.html
+index.html: index.Rmd exploration.html diffbind.html metagene.html misregulated.html
+	R --slave -e "set.seed(100);rmarkdown::render('$<')"
+
+misregulated.html: misregulated.Rmd exploration.html metagene.html
+	R --slave -e "set.seed(100);rmarkdown::render('$<')"
+
+metagene.html: metagene.Rmd exploration.html
 	R --slave -e "set.seed(100);rmarkdown::render('$<')"
 
 diffbind.html: diffbind.Rmd exploration.html
