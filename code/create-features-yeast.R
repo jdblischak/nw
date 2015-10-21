@@ -19,13 +19,15 @@ atts <- listAttributes(ensembl, page = "feature_page")
 # atts[grep("strand", atts$description, ignore.case = TRUE), ]
 atts_struct <- listAttributes(ensembl, page = "structure")
 # atts_struct[grep("exon", atts_struct$description, ignore.case = TRUE), ]
-genes_all <- getBM(attributes = c("ensembl_gene_id",
+genes_all <- getBM(attributes = c("ensembl_gene_id", "transcript_length",
                                   "chromosome_name", "start_position",
                                   "end_position", "strand",
-                                  "external_gene_name",
+                                  "external_gene_name", "transcript_count",
                                   "gene_biotype"),
                    mart = ensembl)
-genes_final <- genes_all[genes_all$gene_biotype == "protein_coding",
+genes_final <- genes_all[genes_all$gene_biotype == "protein_coding" &
+                         genes_all$transcript_length > 500 &
+                         genes_all$transcript_count == 1,
                          c("ensembl_gene_id", "chromosome_name", "start_position",
                            "end_position", "strand", "external_gene_name")]
 colnames(genes_final) <- c("GeneID", "Chr", "Start", "End", "Strand", "Name")
@@ -48,14 +50,6 @@ genes_final$Strand <- ifelse(genes_final$Strand == 1, "+", "-")
 # Save as tab-separated file in Simplified Annotation Format (SAF)
 write.table(genes_final, "../data/yeast/genome/genes-yeast.txt", quote = FALSE, sep = "\t",
             row.names = FALSE)
-
-# Save in BED format
-genes_bed <- genes_final
-genes_bed$Start <- genes_bed$Start - 1
-genes_bed$Score <- 0
-genes_bed <- genes_bed[, c("Chr", "Start", "End", "Name", "Score", "Strand")]
-write.table(genes_bed, "../data/yeast/genome/genes-yeast.bed", quote = FALSE,
-            sep = "\t", row.names = FALSE, col.names = FALSE)
 
 # 100 bp upstream of TSS and
 # 100 bp downstream of TTS
@@ -83,17 +77,36 @@ write.table(upstream, "../data/yeast/genome/upstream.txt", quote = FALSE,
 write.table(downstream, "../data/yeast/genome/downstream.txt", quote = FALSE,
             sep = "\t", row.names = FALSE)
 
-# Save upstream and downstream regions in BED format
-upstream_bed <- upstream
-upstream_bed$Start <- upstream_bed$Start - 1
-upstream_bed$Score <- 0
-upstream_bed <- upstream_bed[, c("Chr", "Start", "End", "Name", "Score", "Strand")]
-write.table(upstream_bed, "../data/yeast/genome/upstream.bed", quote = FALSE,
-            sep = "\t", row.names = FALSE, col.names = FALSE)
+# Split gene body into 50 bins for metagene plots
+n_bins <- 50
+n_rows <- nrow(genes_final) * n_bins
+GeneID <- character(length = n_rows)
+Chr <- character(length = n_rows)
+Start <- numeric(length = n_rows)
+End <- numeric(length = n_rows)
+Strand <- character(length = n_rows)
+Name <- character(length = n_rows)
 
-downstream_bed <- downstream
-downstream_bed$Start <- downstream_bed$Start - 1
-downstream_bed$Score <- 0
-downstream_bed <- downstream_bed[, c("Chr", "Start", "End", "Name", "Score", "Strand")]
-write.table(downstream_bed, "../data/yeast/genome/downstream.bed", quote = FALSE,
-            sep = "\t", row.names = FALSE, col.names = FALSE)
+j <- 1
+for (i in 1:nrow(genes_final)) {
+  if (genes_final$Strand[i] == "+") {
+    bin_labels <- 1:n_bins
+  } else {
+    bin_labels <- n_bins:1
+  }
+  GeneID[j:(j+n_bins-1)] <- paste(genes_final$GeneID[i], bin_labels, sep = ";")
+  Chr[j:(j+n_bins-1)] <- genes_final$Chr[i]
+  bins <- seq(genes_final$Start[i], genes_final$End[i],
+                         length.out = n_bins+1)
+  Start[j:(j+n_bins-1)] <- floor(bins[-length(bins)])
+  End[j:(j+n_bins-1)] <- floor(bins[-1] -1)
+  Strand[j:(j+n_bins-1)] <- genes_final$Strand[i]
+  Name[j:(j+n_bins-1)] <- genes_final$Name[i]
+  j <- j + n_bins
+}
+stopifnot(i == nrow(genes_final), j == n_rows + 1)
+
+genes_bin <- data.frame(GeneID, Chr, Start, End, Strand, Name,
+                        stringsAsFactors = FALSE)
+write.table(genes_bin, "../data/yeast/genome/genes-bin.txt", quote = FALSE,
+            sep = "\t", row.names = FALSE)

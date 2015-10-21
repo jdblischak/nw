@@ -1,0 +1,78 @@
+---
+title: Metagene plots
+author: John Blischak
+---
+
+**Last updated:** `r Sys.Date()`
+
+**Code version:** `r system("git log -1 --format='%H'", intern = TRUE)`
+
+```{r chunk-options}
+library("knitr")
+opts_chunk$set(fig.align = "center", fig.width = 10)
+```
+
+```{r}
+library("edgeR")
+library("tidyr")
+library("dplyr")
+library("ggplot2")
+theme_set(theme_bw(base_size = 12))
+anno <- read.table("../../data/yeast/annotation.txt", header = TRUE, sep = "\t",
+                   stringsAsFactors = FALSE)
+bin_files <- list.files("../../data/yeast/counts", glob2rx("bins*txt"),
+                        full.names = TRUE)
+counts <- readDGE(files = bin_files, columns = c(1, 7), skip = 1,
+                  labels = sub(".sorted.rmdup_genecounts.txt", "", basename(bin_files)))
+stopifnot(grep("input", anno$sample, ignore.case = TRUE) ==
+          grep("input", colnames(counts), ignore.case = TRUE),
+          grep("aa", anno$sample, ignore.case = TRUE) ==
+          grep("aa", colnames(counts), ignore.case = TRUE),
+          grep("full", anno$sample, ignore.case = TRUE) ==
+          grep("full", colnames(counts), ignore.case = TRUE))
+colnames(counts) <- anno$sample
+head(counts)
+```
+
+```{r}
+counts_cpm <- cpm(counts)
+counts_cpm <- as.data.frame(counts_cpm)
+counts_cpm$H3K4me3.aa762_1080.r1 <- counts_cpm$H3K4me3.aa762_1080.r1 -
+                                counts_cpm$input.aa762_1080.r1
+counts_cpm$H3K4me3.aa762_1080.r2 <- counts_cpm$H3K4me3.aa762_1080.r2 -
+                                counts_cpm$input.aa762_1080.r1
+counts_cpm$H3K4me3.full_length.r1 <- counts_cpm$H3K4me3.full_length.r1 -
+                                 counts_cpm$input.full_length.r1
+counts_cpm$H3K4me3.full_length.r2 <- counts_cpm$H3K4me3.full_length.r2 -
+                                 counts_cpm$input.full_length.r1
+counts_cpm_std <- counts_cpm %>% select(contains("H3K4me3"))
+head(counts_cpm_std)
+```
+
+```{r}
+counts_cpm_std <- cbind(rownames(counts_cpm_std), counts_cpm_std)
+colnames(counts_cpm_std)[1] <- "gene_num"
+counts_cpm_std <- separate(counts_cpm_std, col = gene_num,
+                           into = c("gene", "bin"), sep = ";")
+counts_long <- gather(counts_cpm_std, key = "sample", value = "cpm",
+                      H3K4me3.aa762_1080.r1:H3K4me3.full_length.r2)
+metagene <- counts_long %>%
+  group_by(sample, bin) %>%
+  summarize(mean = mean(cpm),
+            sem = sd(cpm) / sqrt(n()))
+metagene$bin <- as.numeric(metagene$bin)
+```
+
+```{r}
+ggplot(metagene, aes(x = bin, y = mean)) +
+  geom_line(aes(color = sample)) +
+  geom_ribbon(aes(ymin = mean - sem, ymax = mean + sem, fill = sample),
+              alpha = 0.25)
+```
+
+
+## Session information
+
+```{r session-info}
+sessionInfo()
+```
