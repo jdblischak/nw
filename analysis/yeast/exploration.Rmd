@@ -116,7 +116,7 @@ Calculate the reads per million using the total number of non-duplicated reads a
 promoters_rpm <- promoters
 stopifnot(colnames(promoters_rpm)[9:14] == anno$sample)
 for (i in 1:nrow(anno)) {
-  promoters_rpm[, i + 8] <- promoters_rpm[, i + 8] / anno$non_duplicated[i]
+  promoters_rpm[, i + 8] <- promoters_rpm[, i + 8] / anno$non_duplicated[i] * 10^6
 }
 head(promoters_rpm)
 ```
