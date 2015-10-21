@@ -71,9 +71,17 @@ difference <- difference %>% filter(!(gene %in% static_genes))
 How much variation is there in these metrics?
 
 ```{r difference-variation}
-difference_hist <- ggplot(difference, aes(x = difference)) + geom_histogram() + scale_x_log10()
+difference_hist <- ggplot(difference, aes(x = difference)) +
+  geom_histogram() +
+  scale_x_log10() +
+  labs(title = "Distribution of H3K4me3 difference",
+       x = "difference (log10 transformed)")
 compare_mean_plot <- ggplot(difference, aes(x = mean_tss, y = mean_body)) +
-  geom_point() + scale_x_log10() + scale_y_log10()
+  geom_point() +
+  scale_x_log10() + scale_y_log10() +
+    labs(title = "Relationship between mean H3K4me3 in between TSS and gene body",
+       x = "Mean rpm at gene body (log10 transformed)",
+       y = "Mean rpm at TSS (log10 transformed)")
 plot_grid(difference_hist, compare_mean_plot)
 ```
 
@@ -86,14 +94,18 @@ result <- difference %>% group_by(gene) %>%
                            difference[set1 == "aa762_1080"])$statistic,
             pval = t.test(difference[set1 == "full_length"],
                            difference[set1 == "aa762_1080"])$p.value)
-result$facet <- ifelse(result$tstat > 2, "t > 2",
-                       ifelse(result$tstat < -2, "t < -2", "-2 <= 0 <= 2"))
+result$facet <- cut(result$tstat, breaks = quantile(result$tstat),
+                    include.lowest = TRUE)
 ```
 
 There is a clear enrichment of signal in the p-value distribution.
 
 ```{r pval-hist}
-ggplot(result, aes(x = pval)) + geom_histogram()
+ggplot(result, aes(x = pval)) +
+  geom_histogram() +
+  labs(title = "p-value distribution",
+       x = "p-value") +
+  geom_vline(x = 0.05, col = "red")
 n_sig <- sum(result$pval < .05)
 n_sig_fdr <- sum(p.adjust(result$pval) < .05)
 ```
@@ -123,8 +135,6 @@ metagene$sample <- factor(metagene$sample,
                                      "H3K4me3 full length Rep 2",
                                      "H3K4me3 aa762-1080 Rep 1",
                                      "H3K4me3 aa762-1080 Rep 2"))
-metagene$facet <- factor(metagene$facet, levels = c("t < -2", "-2 <= 0 <= 2",
-                                                    "t > 2"))
 ```
 
 Plot the metagene result.
@@ -136,10 +146,11 @@ ggplot(metagene, aes(x = bin, y = mean)) +
               alpha = 0.25) +
   labs(x = "", y = "mean rpm (+/- sem)",
        title = "Distribution of H3K4me3 across gene body") +
-  facet_wrap(~facet)
+  facet_wrap(~facet) +
+  theme(legend.position = "bottom")
 ```
 
-The lowest group has the fewest genes.
+Each quantile contains ~`r table(result$facet)[4]` genes.
 
 ```{r num-per-facet}
 table(result$facet)
