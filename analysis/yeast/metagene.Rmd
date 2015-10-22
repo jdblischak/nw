@@ -169,13 +169,13 @@ plot_mean_tss <- ggplot(counts_long_mean_bin, aes(x = set1, y = mean_tss)) +
   scale_x_discrete(labels = c("aa762_1080" = "762-1080",
                               "full_length" = "Full length")) +
   labs(x = "Set1", y = "Mean rpm at TSS",
-       title = sprintf("t-test p-value: %f", test_mean_tss$p.value))
+       title = paste("t-test p-value:", format(test_mean_tss$p.value, digits = 2)))
 plot_mean_body <- plot_mean_tss %+% aes(y = mean_body) +
   labs(x = "Set1", y = "Mean rpm in gene body",
-       title = sprintf("t-test p-value: %f", test_mean_body$p.value))
+       title = paste("t-test p-value:", format(test_mean_body$p.value, digits = 2)))
 plot_mean_difference <- plot_mean_tss %+% aes(y = difference) +
   labs(x = "Set1", y = "Difference between mean rpm at TSS and gene body",
-       title = sprintf("t-test p-value: %f", test_difference$p.value))
+       title = paste("t-test p-value:", format(test_difference$p.value, digits = 2)))
 plot_grid(plot_mean_tss, plot_mean_body, plot_mean_difference, nrow = 1,
           labels = LETTERS[1:3])
 ```
