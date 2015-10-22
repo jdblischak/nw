@@ -68,13 +68,13 @@ img {
 <div id="TOC">
 <ul>
 <li><a href="#setup">Setup</a></li>
-<li><a href="#effect-of-ra-treatment-on-pluripotency-genes">Effect of RA treatment on pluripotency genes</a></li>
+<li><a href="#effect-of-ra-treatment-on-hox-genes">Effect of RA treatment on hox genes</a></li>
 <li><a href="#session-information">Session information</a></li>
 </ul>
 </div>
 
 <p><strong>Last updated:</strong> 2015-10-22</p>
-<p><strong>Code version:</strong> 3b9f77ca4ecbf3c03d571d6c62c92a181dc81982</p>
+<p><strong>Code version:</strong> 044491cd5df4302bbdcf97ec1313fa184fc31516</p>
 <pre class="r"><code>library(&quot;knitr&quot;)
 opts_chunk$set(fig.align = &quot;center&quot;, fig.width = 10)</code></pre>
 <p>Retinoic acid (RA) treatment is known to affect the expression of the Hox genes. Here I investigate how the Hox genes are affected in the current experiment.</p>
@@ -116,8 +116,8 @@ head(de_results)</code></pre>
 ## ENSMUSG00000033793  0.07886065 6.612570 4.574341e-01 5.857344e-01 FALSE
 ## ENSMUSG00000025907  0.39736543 6.682437 4.430506e-03 1.520137e-02  TRUE</code></pre>
 </div>
-<div id="effect-of-ra-treatment-on-pluripotency-genes" class="section level2">
-<h2>Effect of RA treatment on pluripotency genes</h2>
+<div id="effect-of-ra-treatment-on-hox-genes" class="section level2">
+<h2>Effect of RA treatment on hox genes</h2>
 <p>Convert to Ensembl gene IDs.</p>
 <pre class="r"><code>ensembl &lt;- useMart(host = &quot;sep2015.archive.ensembl.org&quot;,
                    biomart = &quot;ENSEMBL_MART_ENSEMBL&quot;,
