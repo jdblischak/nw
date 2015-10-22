@@ -115,7 +115,7 @@ To visualize the enrichment, below are the density plots of the p-values for dif
 ```{r pluri-enrichment-density}
 plot(density(de_results$PValue[!de_results$pluripotent]),
      main = "Enrichment of pluripotent genes (red line)",
-     xlab = "p-value")
+     xlab = "p-value", xlim = c(0, 1), xaxs = "i")
 lines(density(de_results$PValue[de_results$pluripotent]), col = "red")
 ```
 

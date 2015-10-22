@@ -103,11 +103,20 @@ for (i in 1:length(ra_binding)) {
     ra_binding[i] <- "neither"
   }
 }
-d$ra_binding <- factor(ra_binding, levels = c("neither", "-RA", "+RA", "both"))
-table(d$ra_binding)
+table(ra_binding)
 ```
 
+Since there is only one observation of a pre-binding site that overlaps, remove it.
+
+```{r remove-pre-rar}
+d$ra_binding <- ra_binding
+d <- d[d$ra_binding != "-RA", ]
+d$ra_binding <- factor(d$ra_binding, levels = c("neither", "+RA", "both"))
+```
+
+
 Compare the results of the current study to those of [Mahony et al., 2011][Mahony2011].
+This analysis includes `r nrow(d)` genes.
 
 ```{r ra-binding}
 compare_fc <- ggplot(d, aes(x = fc, y = logFC)) +

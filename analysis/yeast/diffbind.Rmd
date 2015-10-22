@@ -9,7 +9,7 @@ author: John Blischak
 
 ```{r chunk-options}
 library("knitr")
-opts_chunk$set(fig.align = "center")
+opts_chunk$set(fig.align = "center", fig.width = 10)
 ```
 
 ## Setup
