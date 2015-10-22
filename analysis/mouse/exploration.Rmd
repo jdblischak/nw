@@ -72,7 +72,8 @@ op <- par(mfcol = c(1, 3))
 plot(density(log_cpm[, 1]), main = "Distribution of log2 cpm")
 apply(log_cpm[, -1], 2, function(x) lines(density(x)))
 abline(v = 0, col = "red")
-boxplot(log_cpm, las = 3)
+boxplot(log_cpm, las = 3, col = ifelse(anno$treatment == "RA", "blue", "red"),
+        names = paste0(anno$treatment, "\n", anno$replicate))
 abline(h = 0, col = "red")
 plot(rowMeans(log_cpm[, anno$treatment == "DMSO"]),
      rowMeans(log_cpm[, anno$treatment == "RA"]),
@@ -107,7 +108,8 @@ op <- par(mfcol = c(1, 3))
 plot(density(log_cpm[, 1]), main = "Distribution of log2 cpm")
 apply(log_cpm[, -1], 2, function(x) lines(density(x)))
 abline(v = 0, col = "red")
-boxplot(log_cpm, las = 3)
+boxplot(log_cpm, las = 3, col = ifelse(anno$treatment == "RA", "blue", "red"),
+        names = paste0(anno$treatment, "\n", anno$replicate))
 abline(h = 0, col = "red")
 plot(rowMeans(log_cpm[, anno$treatment == "DMSO"]),
      rowMeans(log_cpm[, anno$treatment == "RA"]),
