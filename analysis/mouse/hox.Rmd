@@ -53,7 +53,7 @@ de_results <- read.table("../../data/mouse/de-results.txt",
 head(de_results)
 ```
 
-## Effect of RA treatment on pluripotency genes
+## Effect of RA treatment on hox genes
 
 Convert to Ensembl gene IDs.
 
