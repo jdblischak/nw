@@ -94,6 +94,8 @@ metagene$sample <- factor(metagene$sample,
                                      "H3K4me3 aa762-1080 Rep 2"))
 ```
 
+This analsysis uses `r length(unique(counts_cpm_std$gene))` genes.
+
 ## Plot
 
 Plot the metagene result.
