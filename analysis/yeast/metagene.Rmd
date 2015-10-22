@@ -26,6 +26,7 @@ library("edgeR")
 library("tidyr")
 library("dplyr")
 library("ggplot2")
+library("cowplot")
 theme_set(theme_bw(base_size = 12))
 ```
 
@@ -107,6 +108,77 @@ ggplot(metagene, aes(x = bin, y = mean)) +
 ```
 
 In addition to the lower H3K4me3 at the TSS, there is higher H3K4me3 in the gene body for the yeast with the truncated Set1.
+
+## Test
+
+Are the observed differences in the metagene plot statistically significant?
+
+Merge the annotation information.
+
+```{r merge-anno}
+counts_long <- merge(counts_long, anno[, c("set1", "sample")], by = "sample")
+```
+
+For each gene in each bin, calculate the mean between the two replicates.
+
+```{r mean-of-replicates}
+counts_long_mean <-  counts_long %>%
+  group_by(set1, gene, bin) %>%
+  summarize(mean_cpm = mean(cpm))
+head(counts_long_mean)
+```
+
+Take the mean across bins 1-10 and bins 31-40, and also calculate the difference in these two means.
+
+```{r mean-of-bins}
+counts_long_mean_bin <-  counts_long_mean %>%
+  filter(bin %in% c(1:10, 31:40)) %>%
+  group_by(set1, gene) %>%
+  summarize(mean_tss = mean(mean_cpm[bin %in% 1:10]),
+            mean_body = mean(mean_cpm[bin %in% 31:40]),
+            difference = mean_tss - mean_body)
+stopifnot(length(unique(counts_long_mean_bin$gene)) * 2 ==
+          nrow(counts_long_mean_bin))
+head(counts_long_mean_bin)
+```
+
+How are these distributed?
+
+```{r disributions}
+ggplot(counts_long_mean_bin, aes(x = mean_tss)) + geom_histogram() + facet_wrap(~set1)
+ggplot(counts_long_mean_bin, aes(x = mean_body)) + geom_histogram() + facet_wrap(~set1)
+ggplot(counts_long_mean_bin, aes(x = difference)) + geom_histogram() + facet_wrap(~set1)
+```
+
+Perform t-tests.
+
+```{r t-tests}
+test_mean_tss <- t.test(counts_long_mean_bin$mean_tss[counts_long_mean_bin$set1 == "full_length"],
+       counts_long_mean_bin$mean_tss[counts_long_mean_bin$set1 == "aa762_1080"])
+test_mean_body <- t.test(counts_long_mean_bin$mean_body[counts_long_mean_bin$set1 == "full_length"],
+       counts_long_mean_bin$mean_body[counts_long_mean_bin$set1 == "aa762_1080"])
+test_difference <- t.test(counts_long_mean_bin$difference[counts_long_mean_bin$set1 == "full_length"],
+       counts_long_mean_bin$difference[counts_long_mean_bin$set1 == "aa762_1080"])
+```
+
+They are all highly significant.
+
+```{r metagene-tests}
+plot_mean_tss <- ggplot(counts_long_mean_bin, aes(x = set1, y = mean_tss)) +
+  geom_boxplot() +
+  scale_x_discrete(labels = c("aa762_1080" = "762-1080",
+                              "full_length" = "Full length")) +
+  labs(x = "Set1", y = "Mean rpm at TSS",
+       title = sprintf("t-test p-value: %f", test_mean_tss$p.value))
+plot_mean_body <- plot_mean_tss %+% aes(y = mean_body) +
+  labs(x = "Set1", y = "Mean rpm in gene body",
+       title = sprintf("t-test p-value: %f", test_mean_body$p.value))
+plot_mean_difference <- plot_mean_tss %+% aes(y = difference) +
+  labs(x = "Set1", y = "Difference between mean rpm at TSS and gene body",
+       title = sprintf("t-test p-value: %f", test_difference$p.value))
+plot_grid(plot_mean_tss, plot_mean_body, plot_mean_difference, nrow = 1,
+          labels = LETTERS[1:3])
+```
 
 ## Session information
 
